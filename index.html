@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UK Road Collision Hotspots</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117; color: #e0e0e0;
+      height: 100vh; display: flex; flex-direction: column;
+    }
+    header {
+      padding: 10px 20px; background: #1a1d27;
+      border-bottom: 1px solid #2a2d3a;
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap; flex-shrink: 0;
+    }
+    header h1 { font-size: 15px; font-weight: 600; color: #fff; }
+
+    .filters { display: flex; gap: 6px; }
+    .filter-btn {
+      padding: 5px 14px; border-radius: 20px;
+      border: 1px solid #3a3d4a; background: transparent;
+      color: #9ca3af; font-size: 12px; cursor: pointer; transition: all 0.15s;
+    }
+    .filter-btn:hover { border-color: #6b7280; color: #e0e0e0; }
+    .filter-btn.active { color: #fff; border-color: transparent; }
+    .filter-btn.active[data-filter="all"]     { background: #3b82f6; }
+    .filter-btn.active[data-filter="fatal"]   { background: #ef4444; }
+    .filter-btn.active[data-filter="serious"] { background: #f97316; }
+    .filter-btn.active[data-filter="slight"]  { background: #eab308; }
+    .reset-btn { border-color: #4b5563; color: #6b7280; }
+    .reset-btn:hover { border-color: #9ca3af; color: #d1d5db; background: transparent; }
+    .filter-btn .mode-tag {
+      font-size: 9px; opacity: 0.7;
+      display: block; line-height: 1;
+    }
+
+    .postcode-search { display: flex; gap: 6px; align-items: center; }
+    .postcode-search input {
+      padding: 5px 12px; border-radius: 6px;
+      border: 1px solid #3a3d4a; background: #0f1117;
+      color: #e0e0e0; font-size: 13px; width: 130px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .postcode-search input:focus { outline: none; border-color: #3b82f6; }
+    .postcode-search select {
+      padding: 5px 8px; border-radius: 6px;
+      border: 1px solid #3a3d4a; background: #0f1117;
+      color: #e0e0e0; font-size: 12px; cursor: pointer;
+    }
+    .postcode-search button {
+      padding: 5px 12px; border-radius: 6px; border: none;
+      background: #3b82f6; color: #fff; font-size: 12px; cursor: pointer;
+    }
+    .postcode-search button:hover { background: #2563eb; }
+    .postcode-search button:disabled { background: #374151; cursor: not-allowed; }
+
+    #postcode-result { font-size: 12px; color: #9ca3af; }
+    #postcode-result strong { color: #f0f0f0; }
+    #stats { margin-left: auto; font-size: 12px; color: #6b7280; white-space: nowrap; }
+    #stats strong { color: #f0f0f0; font-size: 14px; }
+
+    #map { flex: 1; }
+
+    .legend {
+      position: absolute; bottom: 28px; right: 10px; z-index: 999;
+      background: #1a1d27; border: 1px solid #2a2d3a;
+      border-radius: 8px; padding: 12px 16px; font-size: 12px; line-height: 1.8;
+    }
+    .legend h4 { font-size: 11px; color: #6b7280; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+
+    .leaflet-popup-content-wrapper {
+      background: #1a1d27; color: #e0e0e0;
+      border: 1px solid #2a2d3a; border-radius: 8px; font-size: 13px;
+    }
+    .leaflet-popup-tip { background: #1a1d27; }
+    .popup-title { font-weight: 600; margin-bottom: 4px; }
+    .popup-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+
+    #loading {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: #1a1d27; border: 1px solid #2a2d3a;
+      border-radius: 8px; padding: 24px 32px;
+      text-align: center; z-index: 1000; font-size: 14px; color: #9ca3af;
+    }
+    #loading p { margin-top: 8px; font-size: 12px; color: #6b7280; }
+
+    .custom-cluster {
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; font-weight: 700; font-size: 13px;
+      border: 2px solid rgba(255,255,255,0.25);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🗺 UK Road Collision Hotspots</h1>
+
+    <div class="filters">
+      <button class="filter-btn" data-filter="fatal">
+        ⚫ Fatal
+        <span class="mode-tag">markers</span>
+      </button>
+      <button class="filter-btn" data-filter="serious">
+        🔴 Serious
+        <span class="mode-tag">markers</span>
+      </button>
+      <button class="filter-btn" data-filter="slight">
+        🟡 Slight
+        <span class="mode-tag">heatmap</span>
+      </button>
+      <button class="filter-btn" data-filter="all">
+        All
+        <span class="mode-tag">heatmap</span>
+      </button>
+      <button class="filter-btn reset-btn" onclick="resetAll()">✕ Clear</button>
+    </div>
+
+    <div class="postcode-search">
+      <input type="text" id="postcode-input" placeholder="e.g. SW1A 1AA" maxlength="8" />
+      <select id="radius-select">
+        <option value="0.5">0.5 mile</option>
+        <option value="1" selected>1 mile</option>
+        <option value="3">3 miles</option>
+        <option value="5">5 miles</option>
+      </select>
+      <button id="search-btn" onclick="searchPostcode()">Search</button>
+    </div>
+    <div id="postcode-result"></div>
+    <div id="stats">Loading...</div>
+  </header>
+
+  <div id="map"></div>
+  <div id="loading">⏳ Loading collision data...<p>551k+ records, just a moment</p></div>
+
+  <div class="legend">
+    <h4>Severity</h4>
+    <div><span class="dot" style="background:#ef4444"></span>Fatal</div>
+    <div><span class="dot" style="background:#f97316"></span>Serious</div>
+    <div><span class="dot" style="background:#eab308"></span>Slight</div>
+    <br>
+    <h4>View mode</h4>
+    <div style="color:#9ca3af;font-size:11px">Fatal/Serious → clusters<br>Slight/All → heatmap</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <script>
+    const map = L.map("map", { center: [52.5, -1.5], zoom: 6 });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OpenStreetMap &copy; CARTO | Source: DfT STATS19',
+      maxZoom: 18,
+    }).addTo(map);
+
+    const COLOURS  = { 1: "#ef4444", 2: "#f97316", 3: "#eab308" };
+    const LABELS   = { 1: "Fatal",   2: "Serious", 3: "Slight"  };
+    const BADGE_BG = { 1: "#7f1d1d", 2: "#7c2d12", 3: "#713f12" };
+    const FILTER_COLOUR = { fatal: "#ef4444", serious: "#f97316", slight: "#eab308", all: "#6b7280" };
+
+    let allData = [];
+    let activeLayer = null;
+    let postcodeCircle = null;
+    let metaYears = [];
+
+    function showSummaryStats() {
+      const fatal   = allData.filter(d => d[3] === 1).length;
+      const serious = allData.filter(d => d[3] === 2).length;
+      const slight  = allData.filter(d => d[3] === 3).length;
+      const years   = metaYears;
+      document.getElementById("stats").innerHTML = `
+        <strong>${allData.length.toLocaleString()}</strong> total &nbsp;·&nbsp;
+        <span style="color:#ef4444">⚫ ${fatal.toLocaleString()} fatal</span> &nbsp;
+        <span style="color:#f97316">🔴 ${serious.toLocaleString()} serious</span> &nbsp;
+        <span style="color:#eab308">🟡 ${slight.toLocaleString()} slight</span> &nbsp;·&nbsp;
+        ${years[0]}–${years[years.length-1]}
+      `;
+    }
+
+    function resetAll() {
+      if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+      if (postcodeCircle) { map.removeLayer(postcodeCircle); postcodeCircle = null; }
+      document.getElementById("postcode-result").innerHTML = "";
+      document.getElementById("postcode-input").value = "";
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+      map.setView([52.5, -1.5], 6);
+      showSummaryStats();
+    }
+
+    // ── Marker cluster (Fatal / Serious) ──────────────────────────────────────
+    function showMarkers(points, filter) {
+      const colour    = FILTER_COLOUR[filter];
+      const textColor = filter === "slight" ? "#000" : "#fff";
+
+      const group = L.markerClusterGroup({
+        maxClusterRadius: 50,
+        disableClusteringAtZoom: 14,
+        chunkedLoading: true,
+        chunkSize: 2000,
+        chunkDelay: 10,
+        iconCreateFunction(cluster) {
+          const count = cluster.getChildCount();
+          const size  = count > 500 ? 52 : count > 100 ? 44 : count > 10 ? 36 : 28;
+          return L.divIcon({
+            html: `<div class="custom-cluster" style="width:${size}px;height:${size}px;background:${colour};color:${textColor};font-size:${size > 40 ? 13 : 11}px">${count}</div>`,
+            className: "", iconSize: [size, size],
+          });
+        },
+      });
+
+      points.forEach(d => {
+        const marker = L.marker([d[0], d[1]], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="width:10px;height:10px;border-radius:50%;background:${COLOURS[d[3]]};border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px ${COLOURS[d[3]]}"></div>`,
+            iconSize: [10, 10], iconAnchor: [5, 5],
+          }),
+        });
+        marker.bindPopup(`
+          <div class="popup-title">Road Collision</div>
+          <span class="popup-badge" style="background:${BADGE_BG[d[3]]};color:${COLOURS[d[3]]}">${LABELS[d[3]]}</span>
+        `);
+        group.addLayer(marker);
+      });
+
+      return group;
+    }
+
+    // ── Heatmap (Slight / All) ─────────────────────────────────────────────────
+    function showHeatmap(points, filter) {
+      const cfg = filter === "slight"
+        ? { radius: 7,  blur: 10, max: 1.0, minOpacity: 0.3 }
+        : { radius: 8,  blur: 12, max: 1.0, minOpacity: 0.3 };
+
+      return L.heatLayer(points.map(d => [d[0], d[1], d[2]]), {
+        ...cfg,
+        maxZoom: 14,
+        gradient: { 0.2: "#1a73e8", 0.4: "#34a853", 0.6: "#fbbc04", 0.8: "#ea4335", 1.0: "#ffffff" },
+      });
+    }
+
+    // ── Main update ───────────────────────────────────────────────────────────
+    function updateMap(filter) {
+      if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+
+      const filtered = filter === "all"     ? allData
+                     : filter === "fatal"   ? allData.filter(d => d[3] === 1)
+                     : filter === "serious" ? allData.filter(d => d[3] === 2)
+                     :                        allData.filter(d => d[3] === 3);
+
+      // Fatal + Serious → clustered markers  |  Slight + All → heatmap
+      if (filter === "fatal" || filter === "serious") {
+        activeLayer = showMarkers(filtered, filter);
+      } else {
+        activeLayer = showHeatmap(filtered, filter);
+      }
+      map.addLayer(activeLayer);
+
+      const label = { fatal: "Fatal", serious: "Serious", slight: "Slight", all: "All" }[filter];
+      document.getElementById("stats").innerHTML =
+        `<strong>${filtered.length.toLocaleString()}</strong> ${label} collisions &nbsp;·&nbsp; ${metaYears[0]}–${metaYears[metaYears.length-1]}`;
+
+      document.querySelectorAll(".filter-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.filter === filter);
+      });
+    }
+
+    // ── Postcode search (Web Worker so UI never blocks) ───────────────────────
+    const workerBlob = new Blob([`
+      function haversineKm(lat1, lng1, lat2, lng2) {
+        const R = 6371, toRad = x => x * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+      self.onmessage = function(e) {
+        const { data, lat, lng, radiusKm } = e.data;
+        const latD = radiusKm / 111;
+        const lngD = radiusKm / (111 * Math.cos(lat * Math.PI / 180));
+        const nearby = data.filter(d =>
+          d[0] >= lat - latD && d[0] <= lat + latD &&
+          d[1] >= lng - lngD && d[1] <= lng + lngD &&
+          haversineKm(lat, lng, d[0], d[1]) <= radiusKm
+        );
+        const fatal   = nearby.filter(d => d[3] === 1).length;
+        const serious = nearby.filter(d => d[3] === 2).length;
+        const slight  = nearby.filter(d => d[3] === 3).length;
+        self.postMessage({ total: nearby.length, fatal, serious, slight });
+      };
+    `], { type: "application/javascript" });
+    const searchWorker = new Worker(URL.createObjectURL(workerBlob));
+
+    searchWorker.onmessage = function(e) {
+      const { total, fatal, serious, slight } = e.data;
+      const raw        = document.getElementById("postcode-input").value.trim().toUpperCase();
+      const radiusMiles = parseFloat(document.getElementById("radius-select").value);
+      const label      = radiusMiles === 1 ? "1 mile" : `${radiusMiles} miles`;
+
+      document.getElementById("postcode-result").innerHTML = `
+        <strong>${raw}</strong> within ${label} →
+        <span style="color:#ef4444">⚫ ${fatal} fatal</span> &nbsp;
+        <span style="color:#f97316">🔴 ${serious} serious</span> &nbsp;
+        <span style="color:#eab308">🟡 ${slight} slight</span>
+        &nbsp;· <strong>${total}</strong> total (2020–2025)
+      `;
+      document.getElementById("search-btn").disabled = false;
+      document.getElementById("search-btn").textContent = "Search";
+    };
+
+    async function searchPostcode() {
+      const raw = document.getElementById("postcode-input").value.trim().toUpperCase();
+      if (!raw || !allData.length) return;
+
+      const btn = document.getElementById("search-btn");
+      btn.disabled = true;
+      btn.textContent = "...";
+      document.getElementById("postcode-result").textContent = "Looking up postcode...";
+
+      try {
+        const res  = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(raw)}`);
+        const json = await res.json();
+        if (json.status !== 200) {
+          document.getElementById("postcode-result").textContent = "Postcode not found.";
+          btn.disabled = false; btn.textContent = "Search";
+          return;
+        }
+
+        const { latitude: lat, longitude: lng } = json.result;
+        const radiusMiles = parseFloat(document.getElementById("radius-select").value);
+        const radiusKm    = radiusMiles * 1.60934;
+        const zoom        = radiusMiles <= 0.5 ? 15 : radiusMiles <= 1 ? 14 : radiusMiles <= 3 ? 12 : 11;
+
+        map.setView([lat, lng], zoom);
+        if (postcodeCircle) map.removeLayer(postcodeCircle);
+        postcodeCircle = L.circle([lat, lng], {
+          radius: radiusKm * 1000,
+          color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.08, weight: 1.5,
+        }).addTo(map);
+
+        document.getElementById("postcode-result").textContent = "Counting collisions...";
+        // Off-main-thread filtering — UI stays fully interactive
+        searchWorker.postMessage({ data: allData, lat, lng, radiusKm });
+
+      } catch {
+        document.getElementById("postcode-result").textContent = "Error looking up postcode.";
+        btn.disabled = false; btn.textContent = "Search";
+      }
+    }
+
+    document.getElementById("postcode-input")
+      .addEventListener("keydown", e => { if (e.key === "Enter") searchPostcode(); });
+
+    // ── Load data ─────────────────────────────────────────────────────────────
+    fetch("accidents.json")
+      .then(r => r.json())
+      .then(json => {
+        allData = json.data;
+        metaYears = json.meta.years;
+        document.getElementById("loading").style.display = "none";
+        showSummaryStats();
+        updateMap("fatal");
+        document.querySelectorAll(".filter-btn[data-filter]").forEach(btn => {
+          btn.addEventListener("click", () => updateMap(btn.dataset.filter));
+        });
+      })
+      .catch(() => {
+        document.getElementById("loading").innerHTML =
+          "⚠️ accidents.json not found<br><small>Run <code>python3 process_data.py</code> first</small>";
+      });
+  </script>
+</body>
+</html>
